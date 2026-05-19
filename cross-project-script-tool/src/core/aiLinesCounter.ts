@@ -1,19 +1,125 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { AICodeDetector } from './aiCodeDetector';
+import { ProjectsConfig } from '../config/projectsConfig';
 import { FileAIStats, ProjectAIStats, AICodeBlock, AICommentType } from '../types';
+
+const DEFAULT_COUNTED_EXTENSIONS = new Set<string>();
+
+const REPOSITORY_NAME_ALIASES: Record<string, string> = {
+    ApiBackMiLicencia: 'MiLicencia_ApiBack',
+    ApiBackPortalAdminCentro: 'MiLicencia_ApiBackAdminCentro',
+    ApiBackIntegrador: 'MiLicencia_ApiBackIntegrador',
+    ApiFrontMiLicencia: 'MiLicencia_ApiFront',
+    FrontEndCentro: 'MiLicencia_FrontEndCentro',
+    PortalAdminCentro: 'MiLicencia_PortalAdminCentro',
+    FrontEndCiudadano: 'MiLicencia_FrontEndCiudadano'
+};
+
+const REPOSITORY_COUNTED_EXTENSIONS: Record<string, Set<string>> = {
+    MiLicencia_ApiBack: new Set(['.cs', '.cshtml', '.razor']),
+    MiLicencia_ApiBackAdminCentro: new Set(['.cs', '.cshtml', '.razor']),
+    MiLicencia_ApiBackIntegrador: new Set(['.cs']),
+    MiLicencia_ApiFront: new Set(['.cs']),
+    MiLicencia_FrontEndCentro: new Set(['.ts', '.tsx', '.html', '.htm']),
+    MiLicencia_PortalAdminCentro: new Set(['.cs', '.cshtml', '.razor', '.html', '.htm']),
+    MiLicencia_FrontEndCiudadano: new Set(['.ts', '.tsx', '.html', '.htm'])
+};
+
+const REPOSITORY_CLOC_INCLUDED_LANGUAGES: Record<string, string[]> = {
+    MiLicencia_ApiBack: ['C#', 'Razor'],
+    MiLicencia_ApiBackAdminCentro: ['C#', 'Razor'],
+    MiLicencia_ApiBackIntegrador: ['C#'],
+    MiLicencia_ApiFront: ['C#'],
+    MiLicencia_FrontEndCentro: ['TypeScript', 'HTML'],
+    MiLicencia_PortalAdminCentro: ['C#', 'Razor', 'HTML'],
+    MiLicencia_FrontEndCiudadano: ['TypeScript', 'HTML']
+};
+
+const SKIP_DIRECTORIES = [
+    'node_modules',
+    'dist',
+    'build',
+    '.git',
+    '.vscode',
+    'coverage',
+    '.next',
+    '.nuxt',
+    'out',
+    'bin',
+    'obj',
+    'target',
+    '__pycache__',
+    'venv',
+    '.env'
+];
+
+const API_BACK_EXCLUDED_EXTENSIONS = new Set([
+    '.asax',
+    '.ascx',
+    '.asmx',
+    '.aspx',
+    '.axd',
+    '.config',
+    '.css',
+    '.dockerfile',
+    '.htm',
+    '.html',
+    '.js',
+    '.json',
+    '.less',
+    '.md',
+    '.props',
+    '.sln',
+    '.svg',
+    '.targets',
+    '.txt',
+    '.wsdl',
+    '.xml',
+    '.xsd',
+    '.yaml',
+    '.yml'
+]);
+
+const API_BACK_EXCLUDED_FILE_NAMES = new Set([
+    'dockerfile'
+]);
+
+const API_BACK_EXCLUDED_FILE_PATTERNS = [
+    /\.designer\.cs$/i,
+    /\.generated\.cs$/i,
+    /\.g\.cs$/i,
+    /\.g\.i\.cs$/i,
+    /\.assemblyattributes\.cs$/i,
+    /\.csproj$/i,
+    /\.fsproj$/i,
+    /\.vbproj$/i
+];
+
+interface ClocLanguageStats {
+    code?: number;
+}
+
+interface ClocJsonReport {
+    [language: string]: ClocLanguageStats | unknown;
+}
 
 export class AILinesCounter {
     private detector: AICodeDetector;
     private fileExtensions: string[];
+    private clocExecutable: string;
     private debugMode: boolean;
 
     constructor(debugMode: boolean = false) {
         this.detector = new AICodeDetector();
         this.debugMode = debugMode;
+        this.clocExecutable = this.resolveClocExecutable();
         // Extensiones de archivos de código a analizar
         this.fileExtensions = [
             '.ts', '.tsx', '.js', '.jsx',  // TypeScript y JavaScript
+            '.html', '.htm',               // HTML
+            '.cshtml', '.razor',           // Razor
             '.cs', '.java', '.py',          // C#, Java, Python
             '.cpp', '.c', '.h',             // C++, C
             '.php', '.rb', '.go',           // PHP, Ruby, Go
@@ -134,24 +240,7 @@ export class AILinesCounter {
      * Verifica si se debe omitir un directorio
      */
     private shouldSkipDirectory(dirName: string): boolean {
-        const skipDirs = [
-            'node_modules',
-            'dist',
-            'build',
-            '.git',
-            '.vscode',
-            'coverage',
-            '.next',
-            '.nuxt',
-            'out',
-            'bin',
-            'obj',
-            'target',
-            '__pycache__',
-            'venv',
-            '.env'
-        ];
-        return skipDirs.includes(dirName);
+        return SKIP_DIRECTORIES.includes(dirName);
     }
 
     /**
@@ -163,7 +252,13 @@ export class AILinesCounter {
         fileStats: FileAIStats[]
     ): ProjectAIStats {
         const totalFiles = fileStats.length;
-        const totalLines = fileStats.reduce((sum, stat) => sum + stat.totalLines, 0);
+        const repositoryName = ProjectsConfig.extractRepositoryName(projectPath);
+        const normalizedRepositoryName = REPOSITORY_NAME_ALIASES[repositoryName] || repositoryName;
+        const countedExtensions = REPOSITORY_COUNTED_EXTENSIONS[normalizedRepositoryName] || DEFAULT_COUNTED_EXTENSIONS;
+        const countedFileStats = fileStats
+            .filter(stat => this.shouldCountFileLines(stat.filePath, normalizedRepositoryName, countedExtensions));
+        const fallbackTotalLines = this.getFallbackTotalLines(normalizedRepositoryName, countedFileStats);
+        const totalLines = this.getTotalLinesWithCloc(projectPath, normalizedRepositoryName, fallbackTotalLines);
         const totalAILines = fileStats.reduce((sum, stat) => sum + stat.aiGeneratedLines, 0);
         const aiPercentage = totalLines > 0 ? (totalAILines / totalLines) * 100 : 0;
 
@@ -183,6 +278,312 @@ export class AILinesCounter {
             fragmentCount,
             refactoringCount
         };
+    }
+
+    private shouldCountFileLines(filePath: string, repositoryName: string, countedExtensions: Set<string>): boolean {
+        if (countedExtensions.size === 0) {
+            return true;
+        }
+
+        const normalizedPath = filePath.replace(/\\/g, '/');
+        const baseName = path.basename(normalizedPath).toLowerCase();
+        const extension = path.extname(normalizedPath).toLowerCase();
+
+        if (this.shouldExcludeGeneratedCSharpFile(repositoryName, normalizedPath, baseName, extension)) {
+            return false;
+        }
+
+        if (repositoryName === 'MiLicencia_ApiBack') {
+            if (API_BACK_EXCLUDED_FILE_NAMES.has(baseName)) {
+                return false;
+            }
+
+            if (API_BACK_EXCLUDED_EXTENSIONS.has(extension)) {
+                return false;
+            }
+
+            if (API_BACK_EXCLUDED_FILE_PATTERNS.some(pattern => pattern.test(baseName))) {
+                return false;
+            }
+        }
+
+        return countedExtensions.has(extension);
+    }
+
+    private shouldExcludeGeneratedCSharpFile(
+        repositoryName: string,
+        normalizedPath: string,
+        baseName: string,
+        extension: string
+    ): boolean {
+        const clocLanguages = REPOSITORY_CLOC_INCLUDED_LANGUAGES[repositoryName] || [];
+
+        if (!clocLanguages.includes('C#') || extension !== '.cs') {
+            return false;
+        }
+
+        if (API_BACK_EXCLUDED_FILE_PATTERNS.some(pattern => pattern.test(baseName))) {
+            return true;
+        }
+
+        if (baseName.endsWith('modelsnapshot.cs')) {
+            return true;
+        }
+
+        return normalizedPath.toLowerCase().includes('/connected services/') && baseName === 'reference.cs';
+    }
+
+    private getTotalLinesWithCloc(projectPath: string, repositoryName: string, fallbackTotalLines: number): number {
+        const includedLanguages = REPOSITORY_CLOC_INCLUDED_LANGUAGES[repositoryName];
+
+        if (!includedLanguages) {
+            return fallbackTotalLines;
+        }
+
+        try {
+            const report = this.runCloc(projectPath, includedLanguages);
+            return includedLanguages.reduce((sum, language) => {
+                const stats = report[language];
+
+                if (!stats || typeof stats !== 'object') {
+                    return sum;
+                }
+
+                const code = (stats as ClocLanguageStats).code;
+                return sum + (typeof code === 'number' ? code : 0);
+            }, 0);
+        } catch (error) {
+            if (this.debugMode) {
+                const message = error instanceof Error ? error.message : String(error);
+                console.warn(`⚠️  No fue posible usar cloc para ${repositoryName}. Se usará fallback local. ${message}`);
+            }
+
+            return fallbackTotalLines;
+        }
+    }
+
+    private getFallbackTotalLines(repositoryName: string, fileStats: FileAIStats[]): number {
+        if (!REPOSITORY_CLOC_INCLUDED_LANGUAGES[repositoryName]) {
+            return fileStats.reduce((sum, stat) => sum + stat.totalLines, 0);
+        }
+
+        return fileStats.reduce((sum, stat) => sum + this.countApproximateCodeLines(stat.filePath), 0);
+    }
+
+    private countApproximateCodeLines(filePath: string): number {
+        try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            return this.countCodeLinesFromContent(content, filePath);
+        } catch {
+            try {
+                const content = fs.readFileSync(filePath, 'latin1');
+                return this.countCodeLinesFromContent(content, filePath);
+            } catch {
+                const buffer = fs.readFileSync(filePath);
+                return this.countCodeLinesFromContent(buffer.toString('utf-8'), filePath);
+            }
+        }
+    }
+
+    private countCodeLinesFromContent(content: string, filePath: string): number {
+        const extension = path.extname(filePath).toLowerCase();
+        const supportsHtmlComments = extension === '.html' || extension === '.htm' || extension === '.cshtml' || extension === '.razor';
+        const supportsRazorComments = extension === '.cshtml' || extension === '.razor';
+        const supportsSlashComments = extension !== '.html' && extension !== '.htm';
+
+        const lines = content.replace(/\r\n/g, '\n').split('\n');
+        let inBlockComment = false;
+        let inHtmlComment = false;
+        let inRazorComment = false;
+        let inString = false;
+        let inVerbatimString = false;
+        let inChar = false;
+        let codeLines = 0;
+
+        for (const line of lines) {
+            let hasCode = false;
+
+            for (let index = 0; index < line.length; index++) {
+                const char = line[index];
+                const next = line[index + 1] || '';
+                const third = line[index + 2] || '';
+                const fourth = line[index + 3] || '';
+
+                if (inRazorComment) {
+                    if (char === '*' && next === '@') {
+                        inRazorComment = false;
+                        index++;
+                    }
+                    continue;
+                }
+
+                if (inBlockComment) {
+                    if (char === '*' && next === '/') {
+                        inBlockComment = false;
+                        index++;
+                    }
+                    continue;
+                }
+
+                if (inHtmlComment) {
+                    if (char === '-' && next === '-' && third === '>') {
+                        inHtmlComment = false;
+                        index += 2;
+                    }
+                    continue;
+                }
+
+                if (inString) {
+                    if (!/\s/.test(char)) {
+                        hasCode = true;
+                    }
+
+                    if (inVerbatimString) {
+                        if (char === '"' && next === '"') {
+                            index++;
+                            continue;
+                        }
+
+                        if (char === '"') {
+                            inString = false;
+                            inVerbatimString = false;
+                        }
+                    } else {
+                        if (char === '\\') {
+                            index++;
+                            continue;
+                        }
+
+                        if (char === '"') {
+                            inString = false;
+                        }
+                    }
+
+                    continue;
+                }
+
+                if (inChar) {
+                    hasCode = true;
+
+                    if (char === '\\') {
+                        index++;
+                        continue;
+                    }
+
+                    if (char === '\'') {
+                        inChar = false;
+                    }
+
+                    continue;
+                }
+
+                if (supportsHtmlComments && char === '<' && next === '!' && third === '-' && fourth === '-') {
+                    inHtmlComment = true;
+                    index += 3;
+                    continue;
+                }
+
+                if (supportsRazorComments && char === '@' && next === '*') {
+                    inRazorComment = true;
+                    index++;
+                    continue;
+                }
+
+                if (char === '/' && next === '*') {
+                    inBlockComment = true;
+                    index++;
+                    continue;
+                }
+
+                if (supportsSlashComments && char === '/' && next === '/') {
+                    break;
+                }
+
+                if (char === '@' && next === '"') {
+                    inString = true;
+                    inVerbatimString = true;
+                    hasCode = true;
+                    index++;
+                    continue;
+                }
+
+                if (char === '"') {
+                    inString = true;
+                    inVerbatimString = false;
+                    hasCode = true;
+                    continue;
+                }
+
+                if (char === '\'') {
+                    inChar = true;
+                    hasCode = true;
+                    continue;
+                }
+
+                if (!/\s/.test(char)) {
+                    hasCode = true;
+                }
+            }
+
+            if (hasCode) {
+                codeLines++;
+            }
+        }
+
+        return codeLines;
+    }
+
+    private resolveClocExecutable(): string {
+        const pathDirectories = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+        const executableNames = process.platform === 'win32' ? ['cloc.exe', 'cloc'] : ['cloc'];
+
+        for (const directory of pathDirectories) {
+            for (const executableName of executableNames) {
+                const candidate = path.join(directory, executableName);
+                if (fs.existsSync(candidate)) {
+                    return candidate;
+                }
+            }
+        }
+
+        if (process.platform === 'win32') {
+            const localAppData = process.env.LOCALAPPDATA;
+            if (localAppData) {
+                const wingetPackagesDirectory = path.join(localAppData, 'Microsoft', 'WinGet', 'Packages');
+                if (fs.existsSync(wingetPackagesDirectory)) {
+                    const packageDirectory = fs.readdirSync(wingetPackagesDirectory)
+                        .find(directory => directory.startsWith('AlDanial.Cloc_'));
+
+                    if (packageDirectory) {
+                        const wingetExecutable = path.join(wingetPackagesDirectory, packageDirectory, 'cloc.exe');
+                        if (fs.existsSync(wingetExecutable)) {
+                            return wingetExecutable;
+                        }
+                    }
+                }
+            }
+        }
+
+        return 'cloc';
+    }
+
+    private runCloc(projectPath: string, includedLanguages: string[]): ClocJsonReport {
+        const args = [
+            projectPath,
+            '--json',
+            '--sum-one',
+            `--include-lang=${includedLanguages.join(',')}`,
+            `--exclude-dir=${SKIP_DIRECTORIES.join(',')}`
+        ];
+
+        const output = execFileSync(this.clocExecutable, args, {
+            cwd: projectPath,
+            encoding: 'utf-8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: 60000
+        });
+
+        return JSON.parse(output) as ClocJsonReport;
     }
 
     /**
