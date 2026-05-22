@@ -24,7 +24,7 @@ const REPOSITORY_COUNTED_EXTENSIONS: Record<string, Set<string>> = {
     MiLicencia_ApiFront: new Set(['.cs']),
     MiLicencia_FrontEndCentro: new Set(['.ts', '.tsx', '.html', '.htm']),
     MiLicencia_PortalAdminCentro: new Set(['.cs', '.cshtml', '.razor', '.html', '.htm']),
-    MiLicencia_FrontEndCiudadano: new Set(['.ts', '.tsx', '.html', '.htm'])
+    MiLicencia_FrontEndCiudadano: new Set(['.ts', '.html', '.htm'])
 };
 
 const REPOSITORY_CLOC_INCLUDED_LANGUAGES: Record<string, string[]> = {
