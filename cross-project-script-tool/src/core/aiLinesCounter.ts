@@ -8,33 +8,52 @@ import { FileAIStats, ProjectAIStats, AICodeBlock, AICommentType } from '../type
 const DEFAULT_COUNTED_EXTENSIONS = new Set<string>();
 
 const REPOSITORY_NAME_ALIASES: Record<string, string> = {
-    ApiBackMiLicencia: 'MiLicencia_ApiBack',
-    ApiBackPortalAdminCentro: 'MiLicencia_ApiBackAdminCentro',
-    ApiBackIntegrador: 'MiLicencia_ApiBackIntegrador',
-    ApiFrontMiLicencia: 'MiLicencia_ApiFront',
-    FrontEndCentro: 'MiLicencia_FrontEndCentro',
-    PortalAdminCentro: 'MiLicencia_PortalAdminCentro',
-    FrontEndCiudadano: 'MiLicencia_FrontEndCiudadano'
+    'ApiBackMiLicencia': 'MiLicencia_ApiBack',
+    'ApiBackMiLicencia2-0': 'MiLicencia_ApiBack2-0',
+    'ApiBackPortalAdminCentro': 'MiLicencia_ApiBackAdminCentro',
+    'ApiBackPortalAdminCentro2-0': 'MiLicencia_ApiBackAdminCentro2-0',
+    'ApiBackIntegrador': 'MiLicencia_ApiBackIntegrador',
+    'ApiBackIntegrador2-0': 'MiLicencia_ApiBackIntegrador2-0',
+    'ApiFrontMiLicencia': 'MiLicencia_ApiFront',
+    'ApiFrontMiLicenciaV1-5': 'MiLicencia_ApiFrontV1-5',
+    'FrontEndCentro': 'MiLicencia_FrontEndCentro',
+    'PortalAdminCentro': 'MiLicencia_PortalAdminCentro',
+    'PortalAdminCentro2-0': 'MiLicencia_PortalAdminCentro2-0',
+    'FrontEndCiudadano': 'MiLicencia_FrontEndCiudadano',
+    'FrontEndCiudadano1-5': 'MiLicencia_FrontEndCiudadano1-5',
 };
 
 const REPOSITORY_COUNTED_EXTENSIONS: Record<string, Set<string>> = {
-    MiLicencia_ApiBack: new Set(['.cs', '.cshtml', '.razor']),
-    MiLicencia_ApiBackAdminCentro: new Set(['.cs', '.cshtml', '.razor']),
-    MiLicencia_ApiBackIntegrador: new Set(['.cs']),
-    MiLicencia_ApiFront: new Set(['.cs']),
-    MiLicencia_FrontEndCentro: new Set(['.ts', '.tsx', '.html', '.htm']),
-    MiLicencia_PortalAdminCentro: new Set(['.cs', '.cshtml', '.razor', '.html', '.htm']),
-    MiLicencia_FrontEndCiudadano: new Set(['.ts', '.html', '.htm'])
+    'MiLicencia_ApiBack': new Set(['.cs', '.cshtml', '.razor']),
+    'MiLicencia_ApiBack2-0': new Set(['.cs', '.cshtml', '.razor']),
+    'MiLicencia_ApiBackAdminCentro': new Set(['.cs', '.cshtml', '.razor']),
+    'MiLicencia_ApiBackAdminCentro2-0': new Set(['.cs', '.cshtml', '.razor']),
+    'MiLicencia_ApiBackIntegrador': new Set(['.cs']),
+    'MiLicencia_ApiBackIntegrador2-0': new Set(['.cs']),
+    'MiLicencia_ApiFront': new Set(['.cs']),
+    'MiLicencia_ApiFrontV1-5': new Set(['.cs']),
+    'MiLicencia_FrontEndCentro': new Set(['.ts', '.tsx', '.html', '.htm']),
+    'MiLicencia_PortalAdminCentro': new Set(['.cs', '.cshtml', '.razor', '.html', '.htm']),
+    'MiLicencia_PortalAdminCentro2-0': new Set(['.ts', '.tsx', 'svelte', '.html', '.htm']),
+    'MiLicencia_FrontEndCiudadano': new Set(['.ts', '.html', '.htm']),
+    'MiLicencia_FrontEndCiudadano1-5': new Set(['.ts', '.html', '.htm']),
+
 };
 
 const REPOSITORY_CLOC_INCLUDED_LANGUAGES: Record<string, string[]> = {
     MiLicencia_ApiBack: ['C#', 'Razor'],
-    MiLicencia_ApiBackAdminCentro: ['C#', 'Razor'],
-    MiLicencia_ApiBackIntegrador: ['C#'],
-    MiLicencia_ApiFront: ['C#'],
-    MiLicencia_FrontEndCentro: ['TypeScript', 'HTML'],
-    MiLicencia_PortalAdminCentro: ['C#', 'Razor', 'HTML'],
-    MiLicencia_FrontEndCiudadano: ['TypeScript', 'HTML']
+    'MiLicencia_ApiBack2-0': ['C#', 'Razor'],
+    'MiLicencia_ApiBackAdminCentro': ['C#', 'Razor'],
+    'MiLicencia_ApiBackAdminCentro2-0': ['C#', 'Razor'],
+    'MiLicencia_ApiBackIntegrador': ['C#'],
+    'MiLicencia_ApiBackIntegrador2-0': ['C#'],
+    'MiLicencia_ApiFront': ['C#'],
+    'MiLicencia_ApiFrontV1-5': ['C#'],
+    'MiLicencia_FrontEndCentro': ['TypeScript', 'HTML'],
+    'MiLicencia_PortalAdminCentro': ['C#', 'Razor', 'HTML'],
+    'MiLicencia_PortalAdminCentro2-0': ['TypeScript', 'Svelte', 'HTML'],
+    'MiLicencia_FrontEndCiudadano': ['TypeScript', 'HTML'],
+    'MiLicencia_FrontEndCiudadano1-5': ['TypeScript', 'HTML']
 };
 
 const SKIP_DIRECTORIES = [
@@ -124,7 +143,8 @@ export class AILinesCounter {
             '.cpp', '.c', '.h',             // C++, C
             '.php', '.rb', '.go',           // PHP, Ruby, Go
             '.swift', '.kt',                // Swift, Kotlin
-            '.rs', '.scala'                 // Rust, Scala
+            '.rs', '.scala',                // Rust, Scala  
+            '.svelte'                       // Svelte
         ];
     }
 
