@@ -1,4 +1,4 @@
-import { AICommentType, AICommentPattern, AICodeBlock } from '../types';
+﻿import { AICommentType, AICommentPattern, AICodeBlock } from '../types';
 
 export class AICodeDetector {
     private patterns: AICommentPattern[];
@@ -16,23 +16,23 @@ export class AICodeDetector {
             // Acepta: Método, Metodo, M�todo, etc.
             {
                 type: AICommentType.METHOD,
-                startPattern: /\/\/\s*M[ée�]todo\s+generado\s+por\s+GitHub\s+Copilot/i,
+                startPattern: /(?:\/\/|<!--)\s*M[ée�]todo\s+generado\s+por\s+GitHub\s+Copilot(?:\s*-->)?/i,
                 hasClosingComment: false
             },
             // Regla 8: Fragmento de código (con inicio y fin)
             // Acepta: código, codigo, c�digo, etc.
             {
                 type: AICommentType.FRAGMENT,
-                startPattern: /\/\/\s*Inicio\s+c[óo�]digo\s+generado\s+por\s+GitHub\s+Copilot/i,
-                endPattern: /\/\/\s*Fin\s+c[óo�]digo\s+generado\s+por\s+GitHub\s+Copilot/i,
+                startPattern: /(?:\/\/|<!--)\s*Inicio\s+c[óo�]digo\s+generado\s+por\s+GitHub\s+Copilot(?:\s*-->)?/i,
+                endPattern: /(?:\/\/|<!--)\s*Fin\s+c[óo�]digo\s+generado\s+por\s+GitHub\s+Copilot(?:\s*-->)?/i,
                 hasClosingComment: true
             },
             // Regla 10: Refactorización/Optimización (con inicio y fin)
             // Acepta: refactorización, refactorizacion, refactorizaci�n, optimización, optimizacion, optimizaci�n, etc.
             {
                 type: AICommentType.REFACTORING,
-                startPattern: /\/\/\s*Inicio\s+refactorizaci[óo�]n[\s\/]*optimizaci[óo�]n\s+por\s+GitHub\s+Copilot/i,
-                endPattern: /\/\/\s*Fin\s+refactorizaci[óo�]n[\s\/]*optimizaci[óo�]n\s+por\s+GitHub\s+Copilot/i,
+                startPattern: /(?:\/\/|<!--)\s*Inicio\s+refactorizaci[óo�]n[\s\/]*optimizaci[óo�]n\s+por\s+GitHub\s+Copilot(?:\s*-->)?/i,
+                endPattern: /(?:\/\/|<!--)\s*Fin\s+refactorizaci[óo�]n[\s\/]*optimizaci[óo�]n\s+por\s+GitHub\s+Copilot(?:\s*-->)?/i,
                 hasClosingComment: true
             }
         ];

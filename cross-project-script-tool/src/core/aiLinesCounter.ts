@@ -34,8 +34,8 @@ const REPOSITORY_COUNTED_EXTENSIONS: Record<string, Set<string>> = {
     'MiLicencia_ApiFrontV1-5': new Set(['.cs']),
     'MiLicencia_FrontEndCentro': new Set(['.ts', '.tsx', '.html', '.htm']),
     'MiLicencia_PortalAdminCentro': new Set(['.cs', '.cshtml', '.razor', '.html', '.htm']),
-    'MiLicencia_PortalAdminCentro2-0': new Set(['.ts', '.tsx', 'svelte', '.html', '.htm']),
-    'MiLicencia_FrontEndCiudadano': new Set(['.ts', '.html', '.htm']),
+    'MiLicencia_PortalAdminCentro2-0': new Set(['.ts', '.tsx', '.js', '.jsx', '.svelte', '.html', '.htm']),
+    'MiLicencia_FrontEndCiudadano': new Set(['.ts', '.js', '.html', '.htm']),
     'MiLicencia_FrontEndCiudadano1-5': new Set(['.ts', '.html', '.htm']),
 
 };
@@ -51,10 +51,15 @@ const REPOSITORY_CLOC_INCLUDED_LANGUAGES: Record<string, string[]> = {
     'MiLicencia_ApiFrontV1-5': ['C#'],
     'MiLicencia_FrontEndCentro': ['TypeScript', 'HTML'],
     'MiLicencia_PortalAdminCentro': ['C#', 'Razor', 'HTML'],
-    'MiLicencia_PortalAdminCentro2-0': ['TypeScript', 'Svelte', 'HTML', 'CSS', 'JavaScript'],
-    'MiLicencia_FrontEndCiudadano': ['TypeScript', 'HTML'],
+    'MiLicencia_PortalAdminCentro2-0': ['TypeScript', 'JavaScript', 'Svelte', 'HTML'],
+    'MiLicencia_FrontEndCiudadano': ['TypeScript', 'HTML', 'CSS', 'JavaScript'],
     'MiLicencia_FrontEndCiudadano1-5': ['TypeScript', 'HTML']
 };
+
+const CLOC_SKIP_UNIQUENESS_REPOSITORIES = new Set([
+    'MiLicencia_FrontEndCiudadano',
+    'MiLicencia_FrontEndCiudadano1-5'
+]);
 
 const SKIP_DIRECTORIES = [
     'node_modules',
@@ -203,8 +208,13 @@ export class AILinesCounter {
             const methods = blocks.filter(b => b.type === AICommentType.METHOD);
             const fragments = blocks.filter(b => b.type === AICommentType.FRAGMENT);
             const refactorings = blocks.filter(b => b.type === AICommentType.REFACTORING);
+            const totalCodeLines = this.countCodeLinesFromContent(content, filePath);
 
-            const aiGeneratedLines = blocks.reduce((sum, block) => sum + block.lineCount, 0);
+            const rawAIGeneratedLines = blocks.reduce((sum, block) => {
+                const blockContent = lines.slice(block.startLine - 1, block.endLine).join('\n');
+                return sum + this.countCodeLinesFromContent(blockContent, filePath);
+            }, 0);
+            const aiGeneratedLines = Math.min(totalCodeLines, rawAIGeneratedLines);
 
             return {
                 filePath,
@@ -313,19 +323,26 @@ export class AILinesCounter {
             return false;
         }
 
-        if (API_BACK_EXCLUDED_FILE_NAMES.has(baseName)) {
-            return false;
-        }
+        if (this.isCSharpRepository(repositoryName)) {
+            if (API_BACK_EXCLUDED_FILE_NAMES.has(baseName)) {
+                return false;
+            }
 
-        if (API_BACK_EXCLUDED_EXTENSIONS.has(extension)) {
-            return false;
-        }
+            if (API_BACK_EXCLUDED_EXTENSIONS.has(extension) && !countedExtensions.has(extension)) {
+                return false;
+            }
 
-        if (API_BACK_EXCLUDED_FILE_PATTERNS.some(pattern => pattern.test(baseName))) {
-            return false;
+            if (API_BACK_EXCLUDED_FILE_PATTERNS.some(pattern => pattern.test(baseName))) {
+                return false;
+            }
         }
 
         return countedExtensions.has(extension);
+    }
+
+    private isCSharpRepository(repositoryName: string): boolean {
+        const clocLanguages = REPOSITORY_CLOC_INCLUDED_LANGUAGES[repositoryName] || [];
+        return clocLanguages.includes('C#');
     }
 
     private shouldExcludeGeneratedCSharpFile(
@@ -359,8 +376,8 @@ export class AILinesCounter {
         }
 
         try {
-            const report = this.runCloc(projectPath, includedLanguages);
-            return includedLanguages.reduce((sum, language) => {
+            const report = this.runCloc(projectPath, repositoryName, includedLanguages);
+            const clocTotalLines = includedLanguages.reduce((sum, language) => {
                 const stats = report[language];
 
                 if (!stats || typeof stats !== 'object') {
@@ -370,6 +387,10 @@ export class AILinesCounter {
                 const code = (stats as ClocLanguageStats).code;
                 return sum + (typeof code === 'number' ? code : 0);
             }, 0);
+
+            // Cuando cloc subcuenta ciertos archivos/lenguajes del repositorio,
+            // no debe producir un total menor que el conteo local usado para AI.
+            return Math.max(clocTotalLines, fallbackTotalLines);
         } catch (error) {
             if (this.debugMode) {
                 const message = error instanceof Error ? error.message : String(error);
@@ -585,7 +606,7 @@ export class AILinesCounter {
         return 'cloc';
     }
 
-    private runCloc(projectPath: string, includedLanguages: string[]): ClocJsonReport {
+    private runCloc(projectPath: string, repositoryName: string, includedLanguages: string[]): ClocJsonReport {
         const args = [
             projectPath,
             '--json',
@@ -593,6 +614,10 @@ export class AILinesCounter {
             `--include-lang=${includedLanguages.join(',')}`,
             `--exclude-dir=${SKIP_DIRECTORIES.join(',')}`
         ];
+
+        if (CLOC_SKIP_UNIQUENESS_REPOSITORIES.has(repositoryName)) {
+            args.push('--skip-uniqueness');
+        }
 
         const output = execFileSync(this.clocExecutable, args, {
             cwd: projectPath,
