@@ -41,7 +41,7 @@ const REPOSITORY_COUNTED_EXTENSIONS: Record<string, Set<string>> = {
 };
 
 const REPOSITORY_CLOC_INCLUDED_LANGUAGES: Record<string, string[]> = {
-    MiLicencia_ApiBack: ['C#', 'Razor'],
+    'MiLicencia_ApiBack': ['C#', 'Razor'],
     'MiLicencia_ApiBack2-0': ['C#', 'Razor'],
     'MiLicencia_ApiBackAdminCentro': ['C#', 'Razor'],
     'MiLicencia_ApiBackAdminCentro2-0': ['C#', 'Razor'],
@@ -51,7 +51,7 @@ const REPOSITORY_CLOC_INCLUDED_LANGUAGES: Record<string, string[]> = {
     'MiLicencia_ApiFrontV1-5': ['C#'],
     'MiLicencia_FrontEndCentro': ['TypeScript', 'HTML'],
     'MiLicencia_PortalAdminCentro': ['C#', 'Razor', 'HTML'],
-    'MiLicencia_PortalAdminCentro2-0': ['TypeScript', 'Svelte', 'HTML'],
+    'MiLicencia_PortalAdminCentro2-0': ['TypeScript', 'Svelte', 'HTML', 'CSS', 'JavaScript'],
     'MiLicencia_FrontEndCiudadano': ['TypeScript', 'HTML'],
     'MiLicencia_FrontEndCiudadano1-5': ['TypeScript', 'HTML']
 };
@@ -313,18 +313,16 @@ export class AILinesCounter {
             return false;
         }
 
-        if (repositoryName === 'MiLicencia_ApiBack') {
-            if (API_BACK_EXCLUDED_FILE_NAMES.has(baseName)) {
-                return false;
-            }
+        if (API_BACK_EXCLUDED_FILE_NAMES.has(baseName)) {
+            return false;
+        }
 
-            if (API_BACK_EXCLUDED_EXTENSIONS.has(extension)) {
-                return false;
-            }
+        if (API_BACK_EXCLUDED_EXTENSIONS.has(extension)) {
+            return false;
+        }
 
-            if (API_BACK_EXCLUDED_FILE_PATTERNS.some(pattern => pattern.test(baseName))) {
-                return false;
-            }
+        if (API_BACK_EXCLUDED_FILE_PATTERNS.some(pattern => pattern.test(baseName))) {
+            return false;
         }
 
         return countedExtensions.has(extension);
