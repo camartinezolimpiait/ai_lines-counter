@@ -1,11 +1,15 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { AICodeDetector } from './aiCodeDetector';
 import { ProjectsConfig } from '../config/projectsConfig';
+import {
+    DEFAULT_COUNTED_EXTENSIONS,
+    REPOSITORY_COUNTED_EXTENSIONS,
+    REPOSITORY_CLOC_INCLUDED_LANGUAGES
+} from '../config/repositoryRules';
 import { FileAIStats, ProjectAIStats, AICodeBlock, AICommentType } from '../types';
-
-const DEFAULT_COUNTED_EXTENSIONS = new Set<string>();
 
 const REPOSITORY_NAME_ALIASES: Record<string, string> = {
     'ApiBackMiLicencia': 'MiLicencia_ApiBack',
@@ -23,43 +27,6 @@ const REPOSITORY_NAME_ALIASES: Record<string, string> = {
     'FrontEndCiudadano1-5': 'MiLicencia_FrontEndCiudadano1-5',
 };
 
-const REPOSITORY_COUNTED_EXTENSIONS: Record<string, Set<string>> = {
-    'MiLicencia_ApiBack': new Set(['.cs', '.cshtml', '.razor']),
-    'MiLicencia_ApiBack2-0': new Set(['.cs', '.cshtml', '.razor']),
-    'MiLicencia_ApiBackAdminCentro': new Set(['.cs', '.cshtml', '.razor']),
-    'MiLicencia_ApiBackAdminCentro2-0': new Set(['.cs', '.cshtml', '.razor']),
-    'MiLicencia_ApiBackIntegrador': new Set(['.cs']),
-    'MiLicencia_ApiBackIntegrador2-0': new Set(['.cs']),
-    'MiLicencia_ApiFront': new Set(['.cs']),
-    'MiLicencia_ApiFrontV1-5': new Set(['.cs']),
-    'MiLicencia_FrontEndCentro': new Set(['.ts', '.tsx', '.html', '.htm']),
-    'MiLicencia_PortalAdminCentro': new Set(['.cs', '.cshtml', '.razor', '.html', '.htm']),
-    'MiLicencia_PortalAdminCentro2-0': new Set(['.ts', '.tsx', '.js', '.jsx', '.svelte', '.html', '.htm']),
-    'MiLicencia_FrontEndCiudadano': new Set(['.ts', '.js', '.html', '.htm']),
-    'MiLicencia_FrontEndCiudadano1-5': new Set(['.ts', '.html', '.htm']),
-
-};
-
-const REPOSITORY_CLOC_INCLUDED_LANGUAGES: Record<string, string[]> = {
-    'MiLicencia_ApiBack': ['C#', 'Razor'],
-    'MiLicencia_ApiBack2-0': ['C#', 'Razor'],
-    'MiLicencia_ApiBackAdminCentro': ['C#', 'Razor'],
-    'MiLicencia_ApiBackAdminCentro2-0': ['C#', 'Razor'],
-    'MiLicencia_ApiBackIntegrador': ['C#'],
-    'MiLicencia_ApiBackIntegrador2-0': ['C#'],
-    'MiLicencia_ApiFront': ['C#'],
-    'MiLicencia_ApiFrontV1-5': ['C#'],
-    'MiLicencia_FrontEndCentro': ['TypeScript', 'HTML'],
-    'MiLicencia_PortalAdminCentro': ['C#', 'Razor', 'HTML'],
-    'MiLicencia_PortalAdminCentro2-0': ['TypeScript', 'JavaScript', 'Svelte', 'HTML'],
-    'MiLicencia_FrontEndCiudadano': ['TypeScript', 'HTML', 'CSS', 'JavaScript'],
-    'MiLicencia_FrontEndCiudadano1-5': ['TypeScript', 'HTML']
-};
-
-const CLOC_SKIP_UNIQUENESS_REPOSITORIES = new Set([
-    'MiLicencia_FrontEndCiudadano',
-    'MiLicencia_FrontEndCiudadano1-5'
-]);
 
 const SKIP_DIRECTORIES = [
     'node_modules',
@@ -127,6 +94,7 @@ interface ClocLanguageStats {
 
 interface ClocJsonReport {
     [language: string]: ClocLanguageStats | unknown;
+    SUM?: ClocLanguageStats;
 }
 
 export class AILinesCounter {
@@ -208,13 +176,7 @@ export class AILinesCounter {
             const methods = blocks.filter(b => b.type === AICommentType.METHOD);
             const fragments = blocks.filter(b => b.type === AICommentType.FRAGMENT);
             const refactorings = blocks.filter(b => b.type === AICommentType.REFACTORING);
-            const totalCodeLines = this.countCodeLinesFromContent(content, filePath);
-
-            const rawAIGeneratedLines = blocks.reduce((sum, block) => {
-                const blockContent = lines.slice(block.startLine - 1, block.endLine).join('\n');
-                return sum + this.countCodeLinesFromContent(blockContent, filePath);
-            }, 0);
-            const aiGeneratedLines = Math.min(totalCodeLines, rawAIGeneratedLines);
+            const aiGeneratedLines = this.countAICodeLines(blocks, lines, filePath);
 
             return {
                 filePath,
@@ -227,6 +189,51 @@ export class AILinesCounter {
         } catch (error) {
             console.error(`Error analizando archivo ${filePath}:`, error);
             return null;
+        }
+    }
+
+    private countAICodeLines(blocks: AICodeBlock[], lines: string[], filePath: string): number {
+        if (blocks.length === 0) {
+            return 0;
+        }
+
+        try {
+            return this.countAICodeLinesWithCloc(blocks, lines, filePath);
+        } catch (error) {
+            if (this.debugMode) {
+                const message = error instanceof Error ? error.message : String(error);
+                console.warn(`⚠️  No fue posible contar líneas AI con cloc en ${filePath}. Se usará fallback local. ${message}`);
+            }
+
+            return blocks.reduce((sum, block) => {
+                const blockContent = lines.slice(block.startLine - 1, block.endLine).join('\n');
+                return sum + this.countCodeLinesFromContent(blockContent, filePath);
+            }, 0);
+        }
+    }
+
+    private countAICodeLinesWithCloc(blocks: AICodeBlock[], lines: string[], filePath: string): number {
+        const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-lines-counter-'));
+        const extension = path.extname(filePath).toLowerCase() || '.txt';
+
+        try {
+            blocks.forEach((block, index) => {
+                const blockContent = lines.slice(block.startLine - 1, block.endLine).join('\n');
+                const tempFilePath = path.join(tempDirectory, `block_${index}${extension}`);
+                fs.writeFileSync(tempFilePath, blockContent, 'utf-8');
+            });
+
+            const output = execFileSync(this.clocExecutable, [tempDirectory, '--json', '--sum-one'], {
+                encoding: 'utf-8',
+                stdio: ['ignore', 'pipe', 'pipe'],
+                timeout: 60000
+            });
+
+            const report = JSON.parse(output) as ClocJsonReport;
+            const code = report.SUM?.code;
+            return typeof code === 'number' ? code : 0;
+        } finally {
+            fs.rmSync(tempDirectory, { recursive: true, force: true });
         }
     }
 
@@ -289,12 +296,12 @@ export class AILinesCounter {
             .filter(stat => this.shouldCountFileLines(stat.filePath, normalizedRepositoryName, countedExtensions));
         const fallbackTotalLines = this.getFallbackTotalLines(normalizedRepositoryName, countedFileStats);
         const totalLines = this.getTotalLinesWithCloc(projectPath, normalizedRepositoryName, fallbackTotalLines);
-        const totalAILines = fileStats.reduce((sum, stat) => sum + stat.aiGeneratedLines, 0);
+        const totalAILines = countedFileStats.reduce((sum, stat) => sum + stat.aiGeneratedLines, 0);
         const aiPercentage = totalLines > 0 ? (totalAILines / totalLines) * 100 : 0;
 
-        const methodCount = fileStats.reduce((sum, stat) => sum + stat.methods.length, 0);
-        const fragmentCount = fileStats.reduce((sum, stat) => sum + stat.fragments.length, 0);
-        const refactoringCount = fileStats.reduce((sum, stat) => sum + stat.refactorings.length, 0);
+        const methodCount = countedFileStats.reduce((sum, stat) => sum + stat.methods.length, 0);
+        const fragmentCount = countedFileStats.reduce((sum, stat) => sum + stat.fragments.length, 0);
+        const refactoringCount = countedFileStats.reduce((sum, stat) => sum + stat.refactorings.length, 0);
 
         return {
             projectPath,
@@ -303,7 +310,7 @@ export class AILinesCounter {
             totalLines,
             totalAILines,
             aiPercentage: Math.round(aiPercentage * 100) / 100,
-            fileStats: fileStats.filter(stat => stat.aiGeneratedLines > 0), // Solo archivos con código AI
+            fileStats: countedFileStats.filter(stat => stat.aiGeneratedLines > 0), // Solo archivos con código AI
             methodCount,
             fragmentCount,
             refactoringCount
@@ -376,7 +383,7 @@ export class AILinesCounter {
         }
 
         try {
-            const report = this.runCloc(projectPath, repositoryName, includedLanguages);
+            const report = this.runCloc(projectPath);
             const clocTotalLines = includedLanguages.reduce((sum, language) => {
                 const stats = report[language];
 
@@ -388,9 +395,9 @@ export class AILinesCounter {
                 return sum + (typeof code === 'number' ? code : 0);
             }, 0);
 
-            // Cuando cloc subcuenta ciertos archivos/lenguajes del repositorio,
-            // no debe producir un total menor que el conteo local usado para AI.
-            return Math.max(clocTotalLines, fallbackTotalLines);
+            // El total de líneas reales debe salir estrictamente de cloc
+            // con la suma de los lenguajes configurados por repositorio.
+            return clocTotalLines;
         } catch (error) {
             if (this.debugMode) {
                 const message = error instanceof Error ? error.message : String(error);
@@ -606,18 +613,13 @@ export class AILinesCounter {
         return 'cloc';
     }
 
-    private runCloc(projectPath: string, repositoryName: string, includedLanguages: string[]): ClocJsonReport {
+    private runCloc(projectPath: string): ClocJsonReport {
         const args = [
             projectPath,
             '--json',
             '--sum-one',
-            `--include-lang=${includedLanguages.join(',')}`,
-            `--exclude-dir=${SKIP_DIRECTORIES.join(',')}`
+            '--vcs=git'
         ];
-
-        if (CLOC_SKIP_UNIQUENESS_REPOSITORIES.has(repositoryName)) {
-            args.push('--skip-uniqueness');
-        }
 
         const output = execFileSync(this.clocExecutable, args, {
             cwd: projectPath,

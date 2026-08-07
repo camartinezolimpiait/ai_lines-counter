@@ -1,4 +1,16 @@
-﻿import { AICommentType, AICommentPattern, AICodeBlock } from '../types';
+﻿import * as path from 'path';
+import { REPOSITORY_COUNTED_EXTENSIONS } from '../config/repositoryRules';
+import { AICommentType, AICommentPattern, AICodeBlock } from '../types';
+
+// Unión dinámica de todas las extensiones configuradas por repositorio.
+const allCountedExtensions: string[] = [];
+Object.values(REPOSITORY_COUNTED_EXTENSIONS).forEach((extensions: Set<string>) => {
+    extensions.forEach((extension: string) => {
+        allCountedExtensions.push(extension.toLowerCase());
+    });
+});
+const CLOC_ALIGNED_EXTENSIONS = new Set(allCountedExtensions);
+
 
 export class AICodeDetector {
     private patterns: AICommentPattern[];
@@ -11,37 +23,90 @@ export class AICodeDetector {
      * Inicializa los patrones de detección para las diferentes reglas
      */
     private initializePatterns(): AICommentPattern[] {
+        const githubToken = 'github';
+        const copilotToken = 'copilot';
+        const metodoToken = 'm(?:e|é|�)?todo';
+        const codigoToken = 'c(?:o|ó|�)?digo';
+        const refactorizacionToken = 'refactorizaci(?:o|ó|�)?n';
+        const optimizacionToken = 'optimizaci(?:o|ó|�)?n';
+
         return [
             // Regla 7: Método generado (sin comentario de cierre)
-            // Acepta: Método, Metodo, M�todo, etc.
+            // Detecta por contenido en línea, sin depender del formato exacto del comentario.
             {
                 type: AICommentType.METHOD,
-                startPattern: /(?:\/\/|<!--)\s*M[ée�]todo\s+generado\s+por\s+GitHub\s+Copilot(?:\s*-->)?/i,
+                startPattern: this.buildContainsPattern([
+                    metodoToken,
+                    'generad[oa]',
+                    githubToken,
+                    copilotToken
+                ]),
                 hasClosingComment: false
             },
             // Regla 8: Fragmento de código (con inicio y fin)
-            // Acepta: código, codigo, c�digo, etc.
             {
                 type: AICommentType.FRAGMENT,
-                startPattern: /(?:\/\/|<!--)\s*Inicio\s+c[óo�]digo\s+generado\s+por\s+GitHub\s+Copilot(?:\s*-->)?/i,
-                endPattern: /(?:\/\/|<!--)\s*Fin\s+c[óo�]digo\s+generado\s+por\s+GitHub\s+Copilot(?:\s*-->)?/i,
+                startPattern: this.buildContainsPattern([
+                    'inicio',
+                    codigoToken,
+                    'generad[oa]',
+                    githubToken,
+                    copilotToken
+                ]),
+                endPattern: this.buildContainsPattern([
+                    'fin',
+                    codigoToken,
+                    'generad[oa]',
+                    githubToken,
+                    copilotToken
+                ]),
                 hasClosingComment: true
             },
             // Regla 10: Refactorización/Optimización (con inicio y fin)
-            // Acepta: refactorización, refactorizacion, refactorizaci�n, optimización, optimizacion, optimizaci�n, etc.
             {
                 type: AICommentType.REFACTORING,
-                startPattern: /(?:\/\/|<!--)\s*Inicio\s+refactorizaci[óo�]n[\s\/]*optimizaci[óo�]n\s+por\s+GitHub\s+Copilot(?:\s*-->)?/i,
-                endPattern: /(?:\/\/|<!--)\s*Fin\s+refactorizaci[óo�]n[\s\/]*optimizaci[óo�]n\s+por\s+GitHub\s+Copilot(?:\s*-->)?/i,
+                startPattern: this.buildContainsPattern([
+                    'inicio',
+                    `(?:${refactorizacionToken}|${optimizacionToken})`,
+                    githubToken,
+                    copilotToken
+                ]),
+                endPattern: this.buildContainsPattern([
+                    'fin',
+                    `(?:${refactorizacionToken}|${optimizacionToken})`,
+                    githubToken,
+                    copilotToken
+                ]),
                 hasClosingComment: true
             }
         ];
     }
 
     /**
+     * Construye un RegExp que valida que todos los fragmentos existan
+     * en la misma línea, sin exigir un orden/formato de comentario estricto.
+     */
+    private buildContainsPattern(requiredFragments: string[]): RegExp {
+        const lookaheads = requiredFragments.map(fragment => `(?=.*${fragment})`).join('');
+        return new RegExp(`${lookaheads}.*`, 'iu');
+    }
+
+    /**
+     * Fuerza comparación case-insensitive para cualquier patrón configurado.
+     */
+    private testPattern(pattern: RegExp, line: string): boolean {
+        const flags = Array.from(new Set(`${pattern.flags.replace(/g/g, '')}i`)).join('');
+        return new RegExp(pattern.source, flags).test(line);
+    }
+
+    /**
      * Detecta todos los bloques de código generado por AI en un archivo
      */
     public detectAIBlocks(fileContent: string, filePath: string): AICodeBlock[] {
+        if (!this.shouldAnalyzeFileType(filePath)) {
+            return [];
+        }
+
         const lines = fileContent.split('\n');
         const allBlocks: AICodeBlock[] = [];
 
@@ -50,86 +115,27 @@ export class AICodeDetector {
             allBlocks.push(...detectedBlocks);
         }
 
-        // Ordenar bloques por línea de inicio
-        allBlocks.sort((a, b) => a.startLine - b.startLine);
-
-        // Eliminar bloques superpuestos, manteniendo el más específico
-        const nonOverlappingBlocks: AICodeBlock[] = [];
-        const usedLines = new Set<number>();
-
+        // Mantener bloques superpuestos (pueden representar reglas distintas)
+        // y eliminar únicamente duplicados exactos.
+        const uniqueBlocks = new Map<string, AICodeBlock>();
         for (const block of allBlocks) {
-            let hasOverlap = false;
-            
-            // Verificar si este bloque se superpone con líneas ya usadas
-            for (let line = block.startLine; line <= block.endLine; line++) {
-                if (usedLines.has(line)) {
-                    hasOverlap = true;
-                    break;
-                }
-            }
-
-            if (!hasOverlap) {
-                // No hay superposición, agregar el bloque
-                nonOverlappingBlocks.push(block);
-                
-                // Marcar todas las líneas de este bloque como usadas
-                for (let line = block.startLine; line <= block.endLine; line++) {
-                    usedLines.add(line);
-                }
-            } else {
-                // Hay superposición, decidir cuál mantener basado en prioridad
-                // Prioridad: FRAGMENT > REFACTORING > METHOD (los más específicos tienen prioridad)
-                const priority = { 'fragment': 3, 'refactoring': 2, 'method': 1 };
-                const currentPriority = priority[block.type] || 0;
-
-                // Encontrar bloques superpuestos
-                const overlappingIndices: number[] = [];
-                for (let i = 0; i < nonOverlappingBlocks.length; i++) {
-                    const existing = nonOverlappingBlocks[i];
-                    if (this.blocksOverlap(block, existing)) {
-                        overlappingIndices.push(i);
-                    }
-                }
-
-                // Si el nuevo bloque tiene mayor prioridad, reemplazar los existentes
-                if (overlappingIndices.length > 0) {
-                    const existingPriority = Math.max(...overlappingIndices.map(i => 
-                        priority[nonOverlappingBlocks[i].type] || 0
-                    ));
-
-                    if (currentPriority > existingPriority) {
-                        // Remover bloques con menor prioridad
-                        for (let i = overlappingIndices.length - 1; i >= 0; i--) {
-                            const idx = overlappingIndices[i];
-                            const removed = nonOverlappingBlocks[idx];
-                            
-                            // Liberar las líneas del bloque removido
-                            for (let line = removed.startLine; line <= removed.endLine; line++) {
-                                usedLines.delete(line);
-                            }
-                            
-                            nonOverlappingBlocks.splice(idx, 1);
-                        }
-
-                        // Agregar el nuevo bloque
-                        nonOverlappingBlocks.push(block);
-                        for (let line = block.startLine; line <= block.endLine; line++) {
-                            usedLines.add(line);
-                        }
-                    }
-                }
+            const key = `${block.type}:${block.startLine}:${block.endLine}`;
+            if (!uniqueBlocks.has(key)) {
+                uniqueBlocks.set(key, block);
             }
         }
 
-        // Re-ordenar por línea de inicio
-        return nonOverlappingBlocks.sort((a, b) => a.startLine - b.startLine);
+        return Array.from(uniqueBlocks.values()).sort((a, b) => {
+            if (a.startLine !== b.startLine) {
+                return a.startLine - b.startLine;
+            }
+            return a.endLine - b.endLine;
+        });
     }
 
-    /**
-     * Verifica si dos bloques se superponen
-     */
-    private blocksOverlap(block1: AICodeBlock, block2: AICodeBlock): boolean {
-        return !(block1.endLine < block2.startLine || block1.startLine > block2.endLine);
+    private shouldAnalyzeFileType(filePath: string): boolean {
+        const extension = path.extname(filePath).toLowerCase();
+        return CLOC_ALIGNED_EXTENSIONS.has(extension);
     }
 
     /**
@@ -147,10 +153,23 @@ export class AICodeDetector {
             const line = lines[i].trim();
 
             // Buscar comentario de inicio
-            if (pattern.startPattern.test(line)) {
+            if (this.testPattern(pattern.startPattern, line)) {
                 const startLine = i + 1; // 1-based line numbers
 
                 if (pattern.hasClosingComment && pattern.endPattern) {
+                    // Permite detectar bloques cuyo inicio y fin están en la misma línea.
+                    if (this.testPattern(pattern.endPattern, line)) {
+                        blocks.push({
+                            type: pattern.type,
+                            startLine,
+                            endLine: startLine,
+                            lineCount: 1,
+                            filePath
+                        });
+                        i++;
+                        continue;
+                    }
+
                     // Buscar comentario de cierre (Reglas 8 y 10)
                     const endLine = this.findClosingComment(lines, i, pattern.endPattern);
                     
@@ -198,7 +217,7 @@ export class AICodeDetector {
      */
     private findClosingComment(lines: string[], startIndex: number, endPattern: RegExp): number {
         for (let i = startIndex + 1; i < lines.length; i++) {
-            if (endPattern.test(lines[i])) {
+            if (this.testPattern(endPattern, lines[i])) {
                 return i;
             }
         }
@@ -285,6 +304,12 @@ export class AICodeDetector {
                     }
                 }
             }
+
+            // Para firmas sin bloque (interfaces o métodos de expresión),
+            // tomar como fin la primera línea no vacía que termina en ';'.
+            if (!methodStartFound && /;\s*$/.test(trimmedLine)) {
+                return i;
+            }
         }
 
         // Si no se encuentra el cierre, retornar la última línea del archivo
@@ -296,8 +321,8 @@ export class AICodeDetector {
      */
     public isAIComment(line: string): boolean {
         return this.patterns.some(pattern => 
-            pattern.startPattern.test(line) || 
-            (pattern.endPattern && pattern.endPattern.test(line))
+            this.testPattern(pattern.startPattern, line) || 
+            (pattern.endPattern && this.testPattern(pattern.endPattern, line))
         );
     }
 
@@ -306,7 +331,7 @@ export class AICodeDetector {
      */
     public getCommentType(line: string): AICommentType | null {
         for (const pattern of this.patterns) {
-            if (pattern.startPattern.test(line)) {
+            if (this.testPattern(pattern.startPattern, line)) {
                 return pattern.type;
             }
         }
@@ -328,13 +353,13 @@ export class AICodeDetector {
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             for (const pattern of this.patterns) {
-                if (pattern.startPattern.test(line)) {
+                if (this.testPattern(pattern.startPattern, line)) {
                     foundCount++;
                     foundLines.push(i + 1);
                     const preview = line.trim().substring(0, 60);
                     console.log(`   ✓ Encontrado INICIO ${pattern.type} en línea ${i + 1}: ${preview}${line.trim().length > 60 ? '...' : ''}`);
                 }
-                if (pattern.endPattern && pattern.endPattern.test(line)) {
+                if (pattern.endPattern && this.testPattern(pattern.endPattern, line)) {
                     console.log(`   ✓ Encontrado FIN de ${pattern.type} en línea ${i + 1}`);
                 }
             }
