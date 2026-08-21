@@ -1,14 +1,21 @@
-# Copilot AI lines counter project
+# Contador de líneas generadas por GitHub Copilot
 
-### Prepare project
-git clone del proyecto
-` git clone https://github.com/ogonzalez-Dev/ai_lines-counter.git`
+Herramienta TypeScript para medir líneas de código generadas por Copilot en uno o varios proyectos. El contador detecta las reglas 7, 8 y 10, identifica el tipo de proyecto y aplica extensiones y lenguajes de `cloc` según el repositorio.
 
-Instalación de paquetes
-`npm i`
+## Instalación
 
-### Rutas de los archivos a analizar
-En el `projects.txt` ubicado en la raíz del proyecto, se encuentran las rutas que se van a analizar, se deben cambiar por las rutas locales de los proyectos, así:
+```bash
+git clone https://github.com/ogonzalez-Dev/ai_lines-counter.git
+cd ai_lines-counter/cross-project-script-tool
+npm install
+npm run build
+```
+
+Para obtener totales alineados con las reglas de cada repositorio, instala `cloc` y asegúrate de que esté disponible en `PATH`. Si no está disponible, se usa el conteo local como respaldo.
+
+## Configurar proyectos
+
+Edita `cross-project-script-tool/projects.txt`. Incluye una ruta local por línea; las líneas vacías y las que empiezan por `#` se ignoran:
 ```
 D:/tu_ruta/MiLicencia/backend/ApiBackMiLicencia
 D:/tu_ruta/ApiBackPortalAdm/ApiBackPortalAdminCentro
@@ -18,13 +25,44 @@ D:/tu_ruta/MiLicencia/frontend/FrontEndCentro
 D:/tu_ruta/MiLicencia/frontend/portal_adm/PortalAdminCentro
 ```
 
-### Usage
-Los siguientes comandos se ejecutarán en la raíz del proyecto de conteo de líneas:
+## Uso
 
-`npm run prepare-repos -- -b main`\
-Prepara todos los proyectos haciendo switch hacia la rama main (o en la que se quiera hacer el análisis) y hace un git pull enn cada una de estas rutas, para traer el código más actual
+Ejecuta los comandos desde `cross-project-script-tool`.
 
-**Resultado:**
+### Preparar repositorios
+
+```bash
+npm run prepare-repos -- -b main
+```
+
+Cambia los repositorios configurados a la rama indicada y ejecuta `git pull origin <rama>`. Los repositorios con cambios sin commitear requieren revisión manual.
+
+### Analizar todos los proyectos
+
+```bash
+npm run cli -- --all
+npm run cli -- --all -o reporte.json -f json
+npm run cli -- --all -d
+```
+
+El resumen muestra líneas de código, líneas Copilot, porcentaje y proyectos procesados.
+
+### Analizar un proyecto
+
+```bash
+npm run cli -- "C:/ruta/de/tu/proyecto"
+npm run cli -- "C:/ruta/de/tu/proyecto" -o reporte.txt
+npm run cli -- "C:/ruta/de/tu/proyecto" -o reporte.json -f json
+```
+
+Consulta todas las opciones con:
+
+```bash
+npm run cli -- --help
+npm run prepare-repos -- --help
+```
+
+**Ejemplo de formato de salida (los valores dependen de las rutas y la versión analizadas):**
 ```bash
 ╔══════════════════════════════════════════════════════════════╗
 ║      PREPARACIÓN DE REPOSITORIOS - CHECKOUT + PULL           ║
@@ -48,10 +86,7 @@ Prepara todos los proyectos haciendo switch hacia la rama main (o en la que se q
 
 ----------------------------------------------------
 
-`npm run cli -- --all`\
-Se ejecuta este comando para realizar el análisis de las líneas con IA de todos los proyectos incluídos en el archivo _projects.txt_
-
-**Resultado:**
+El análisis multi-proyecto se configura en `projects.txt` y genera una tabla consolidada:
 
 ```bash
 ╔═══════════════════════════════════════════════════════════════╗
@@ -74,6 +109,10 @@ Se ejecuta este comando para realizar el análisis de las líneas con IA de todo
 
 ```
 
-O se puede hacer un análisis proyecto a proyecto con:
+También se puede analizar un proyecto individual con `npm run cli -- C:/ruta/de/tu/proyecto`.
 
-`npm run cli C:/ruta/de_tu/proyecto`
+## Documentación adicional
+
+- [cross-project-script-tool/README_ES.md](cross-project-script-tool/README_ES.md): referencia detallada en español.
+- [cross-project-script-tool/USAGE.md](cross-project-script-tool/USAGE.md): casos de uso y flujo multi-proyecto.
+- [cross-project-script-tool/RULES.md](cross-project-script-tool/RULES.md): formato de las reglas 7, 8 y 10.

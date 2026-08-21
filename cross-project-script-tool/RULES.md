@@ -2,6 +2,16 @@
 
 Este documento describe las reglas que el contador detecta y cómo deben aplicarse en tu código.
 
+## 🔎 Comportamiento actual del detector
+
+- Los patrones se comparan sin distinguir mayúsculas y minúsculas.
+- Se aceptan las variantes con y sin tilde de `método`, `código`, `refactorización` y `optimización`.
+- Los textos requeridos deben aparecer en la misma línea del comentario, pero no necesitan conservar un orden exacto ni un formato específico de comentario.
+- La detección solo se ejecuta para extensiones configuradas en `src/config/repositoryRules.ts`. Las extensiones contadas pueden variar por repositorio.
+- Los bloques se identifican con líneas numeradas desde 1. Un bloque de Regla 8 o 10 sin cierre genera una advertencia y no se cuenta como bloque válido.
+- Un inicio y su cierre en la misma línea forman un bloque de una línea.
+- Los bloques superpuestos se conservan cuando pertenecen a reglas distintas; los duplicados exactos de una misma regla se eliminan.
+
 ## 🎯 Propósito
 
 Mantener un registro claro y cuantificable de las líneas de código generadas por GitHub Copilot en proyectos de desarrollo de software, permitiendo:
@@ -29,6 +39,8 @@ public NombreMetodo(parametros): TipoRetorno {
 - ❌ NO incluye comentario de cierre
 - 🎯 Se aplica a métodos/funciones COMPLETOS
 - 📊 El conteo incluye desde el comentario hasta el cierre del método
+- 🔍 El final se determina equilibrando llaves e ignorando llaves dentro de cadenas y comentarios
+- 🧾 También puede finalizar en una sentencia terminada en `;` cuando no existe un bloque de llaves
 
 **Ejemplos Válidos**:
 
@@ -66,12 +78,7 @@ public List<User> getActiveUsers() {
 }
 ```
 
-**Notación Pascal**: Los métodos generados deben usar notación Pascal (PascalCase):
-- ✅ `CalcularTotal`
-- ✅ `ObtenerUsuarios`
-- ✅ `ValidarDatos`
-- ❌ `calcular_total` (snake_case)
-- ❌ `obtenerUsuarios` (camelCase)
+**Nombre del método**: El detector no valida la convención de nombres del método. Puede usarse PascalCase, camelCase, snake_case u otra convención; lo imprescindible es que el comentario contenga los textos requeridos.
 
 ---
 
@@ -255,7 +262,9 @@ export class ProductService {
 
 ### Comentarios Anidados (No Soportado)
 
-❌ No se deben anidar bloques de código AI:
+No se recomienda anidar bloques que dependan del mismo marcador de inicio y cierre, porque el detector busca el primer cierre compatible. Sin embargo, los bloques de reglas distintas pueden superponerse y se conservan para que cada regla se contabilice por separado.
+
+❌ Evita este patrón ambiguo:
 
 ```typescript
 // Inicio código generado por GitHub Copilot
@@ -267,7 +276,7 @@ const datos = obtenerDatos();
 // Fin código generado por GitHub Copilot
 ```
 
-✅ En su lugar, usa comentarios separados:
+✅ En su lugar, usa comentarios separados y no superpuestos cuando representen el mismo código:
 
 ```typescript
 // Método generado por GitHub Copilot
@@ -284,6 +293,8 @@ const resultado = datos.map(Procesar);
 ---
 
 ## 📊 Interpretación de Métricas
+
+El contador calcula el total de líneas del repositorio con la suma de los lenguajes configurados en `REPOSITORY_CLOC_INCLUDED_LANGUAGES`. Para los bloques AI usa `cloc` cuando está disponible y aplica un conteo local como fallback si no puede ejecutarlo. Por eso, los totales pueden variar según la configuración del repositorio y la versión de `cloc`.
 
 ### ¿Cuándo usar cada regla?
 
@@ -331,6 +342,12 @@ El contador acepta variaciones en los comentarios para mayor flexibilidad:
 **Para "optimización":**
 - ✅ `optimización`
 - ✅ `optimizacion`
+
+**Para "método":**
+- ✅ `método`
+- ✅ `metodo`
+
+Los términos pueden aparecer en mayúsculas o minúsculas y en cualquier orden dentro de la misma línea, siempre que estén presentes todos los fragmentos requeridos por la regla.
 
 ### Insensibilidad a Mayúsculas/Minúsculas
 

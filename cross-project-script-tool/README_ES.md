@@ -14,12 +14,16 @@ Herramienta transversal para contar automáticamente las líneas de código gene
   - Regla 10: Refactorizaciones y optimizaciones
 - **Reportes Detallados**: Genera reportes en formato texto o JSON con estadísticas completas
 - **Ejecución Transversal**: Se puede ejecutar en cualquier proyecto sin modificaciones
+- **Análisis multi-proyecto**: Procesa todas las rutas configuradas en `projects.txt` y genera un resumen consolidado
+- **Conteo alineado con cloc**: Usa la suma de lenguajes configurada por repositorio y aplica un fallback local si `cloc` no está disponible
+- **Reglas por repositorio**: Define extensiones y lenguajes incluidos en `src/config/repositoryRules.ts`
 
 ## 📦 Instalación
 
 ### Prerrequisitos
 - Node.js (v14 o superior)
 - npm o yarn
+- `cloc` disponible en `PATH` para obtener los totales específicos por lenguaje (opcional; existe fallback local)
 
 ### Pasos de Instalación
 
@@ -27,7 +31,7 @@ Herramienta transversal para contar automáticamente las líneas de código gene
 # 1. Clonar el repositorio
 git clone <repository-url>
 
-# 2. Navegar al directorio del proyecto
+# 2. Navegar al directorio de la herramienta
 cd cross-project-script-tool
 
 # 3. Instalar dependencias
@@ -36,6 +40,8 @@ npm install
 # 4. Compilar el proyecto (opcional)
 npm run build
 ```
+
+El ejecutable de la CLI es `bin/cli.ts` y se ejecuta mediante `ts-node`; no es necesario instalar TypeScript globalmente.
 
 ## 🚀 Uso
 
@@ -53,6 +59,15 @@ npm run cli C:\ruta\al\proyecto -o reporte.txt
 
 # Generar reporte en formato JSON
 npm run cli C:\ruta\al\proyecto -o reporte.json -f json
+
+# Analizar todos los proyectos de projects.txt
+npm run cli -- --all
+
+# Analizar todos y guardar un reporte JSON
+npm run cli -- --all -o reporte.json -f json
+
+# Mostrar información detallada de detección
+npm run cli C:\ruta\al\proyecto -d
 ```
 
 ### Opción 2: Usando ts-node directamente
@@ -65,17 +80,37 @@ ts-node bin/cli.ts
 ts-node bin/cli.ts C:\ruta\al\proyecto -o reporte.txt
 ```
 
-### Opción 3: Compilar y ejecutar
+### Preparar repositorios
+
+Antes de un análisis multi-proyecto, puedes cambiar los repositorios configurados a una rama y actualizarlos:
+
+```bash
+npm run prepare-repos -- -b main
+npm run prepare-repos -- -b develop
+npm run prepare-repos -- --help
+```
+
+El comando detecta cambios sin commitear, ejecuta `git pull origin <rama>` cuando es posible y devuelve error si algún repositorio requiere atención manual.
+
+### Opción 4: Compilar y ejecutar
 
 ```bash
 # Compilar
 npm run build
 
-# Ejecutar
+# Ejecutar la CLI compilada
 node dist/index.js
 ```
 
+Para ver la sintaxis completa de la CLI:
+
+```bash
+npm run cli -- --help
+```
+
 ## 📖 Reglas de Detección
+
+La detección acepta variaciones de mayúsculas/minúsculas y acentos en los comentarios. Solo se analizan extensiones configuradas en `src/config/repositoryRules.ts`; las reglas de cada repositorio también determinan los lenguajes incluidos en el total de `cloc`.
 
 El script detecta código generado por GitHub Copilot basándose en las siguientes reglas:
 
@@ -163,6 +198,8 @@ ARCHIVOS CON CÓDIGO AI
 - Svelte
 - Proyectos con Webpack
 
+El detector selecciona frontend, backend o genérico según la estructura del proyecto. Para los repositorios con reglas específicas, las extensiones contadas pueden ser más restrictivas que esta lista general.
+
 ### Backend
 - Node.js (Express, Koa, Fastify, Hapi)
 - NestJS
@@ -205,7 +242,9 @@ cross-project-script-tool/
 |--------|-------------|---------|
 | `[ruta]` | Ruta del proyecto a analizar | `npm run cli C:\mi-proyecto` |
 | `-o, --output` | Archivo de salida para el reporte | `-o reporte.txt` |
-| `-f, --format` | Formato del reporte (text/json) | `-f json` |
+| `-f, --format` | Formato del reporte (`text`/`json`) | `-f json` |
+| `-a, --all` | Analiza todos los proyectos de `projects.txt` | `--all` |
+| `-d, --debug` | Muestra información detallada de detección | `-d` |
 | `-h, --help` | Muestra ayuda | `-h` |
 
 ## 💡 Ejemplos de Uso
