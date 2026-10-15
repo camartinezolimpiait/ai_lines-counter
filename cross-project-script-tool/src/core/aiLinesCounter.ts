@@ -20,11 +20,13 @@ const REPOSITORY_NAME_ALIASES: Record<string, string> = {
     'ApiBackIntegrador2-0': 'MiLicencia_ApiBackIntegrador2-0',
     'ApiFrontMiLicencia': 'MiLicencia_ApiFront',
     'ApiFrontMiLicenciaV1-5': 'MiLicencia_ApiFrontV1-5',
+    'ApiFrontMiLicencia2-0': 'MiLicencia_ApiFront2-0',
     'FrontEndCentro': 'MiLicencia_FrontEndCentro',
     'PortalAdminCentro': 'MiLicencia_PortalAdminCentro',
     'PortalAdminCentro2-0': 'MiLicencia_PortalAdminCentro2-0',
     'FrontEndCiudadano': 'MiLicencia_FrontEndCiudadano',
     'FrontEndCiudadano1-5': 'MiLicencia_FrontEndCiudadano1-5',
+    'FrontEndCiudadano2-0': 'MiLicencia_FrontEndCiudadano2-0',
 };
 
 
